@@ -16,8 +16,9 @@ import qualified Data.Map.Strict as M
 import qualified Data.HashMap.Strict as HM
 
 
-import Data.Maybe (fromJust)
+import Control.Monad.Error
 
+import Data.Maybe (fromJust)
 import Data.Text (Text, pack)
 
 whenMonoidM :: (Monad m, Monoid (m a)) => m Bool -> m a -> m a
@@ -45,13 +46,23 @@ removeDir fp = doesDirectoryExist fp >>= \case
     False -> return False
     True -> removeDirectoryRecursive fp >> return True
 
+{-
 instance (MonadFail m) => MonadFail (InputT m) where
     fail = lift . fail
+-}
 
+instance (MonadError e m) => MonadError e (InputT m) where
+    throwError = lift . throwError
+    catchError x f = withRunInBase (\unlift -> unlift x `catchError` (unlift . f))
+
+--withRunInBase :: Monad m => ((forall a . InputT m a -> m a) -> m b) -> InputT m b
+
+{-
 instance (MonadException m) => MonadException (ExceptT e m) where
     controlIO f = ExceptT $ controlIO $ \(RunIO run) -> let
                     run' = RunIO (fmap ExceptT . run . runExceptT)
                     in fmap runExceptT $ f run'
+-}
 
 instance (MonadState s m) => MonadState s (InputT m) where
     state = lift . state
@@ -119,4 +130,9 @@ instance (Num a) => NumConv Integer a where
 instance (Integral a, Num b) => NumConv a b where
     convert = fromInteger . toInteger
 
+
+iterateWhileDiff :: Eq a => (a -> a) -> a -> a
+iterateWhileDiff f x
+    | f x == x = x
+    | otherwise = iterateWhileDiff f (f x)
 

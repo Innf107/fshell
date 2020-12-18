@@ -1,6 +1,7 @@
 {-# LANGUAGE LambdaCase, BlockArguments, OverloadedStrings #-}
 {-# LANGUAGE TypeApplications, ScopedTypeVariables #-}
 {-# LANGUAGE TupleSections #-}
+{-# LANGUAGE NamedFieldPuns #-}
 
 module FShell.NativeFs (nativeFs) where
 
@@ -9,6 +10,10 @@ import Relude
 import Control.Error (throwE)
 
 import qualified Data.Text as T
+
+import System.Environment
+import System.IO
+import System.Directory
 
 import FShell.Runtime
 import Types
@@ -42,6 +47,9 @@ nativeFs = fromList [
         -- Shell
         , ("status", NumV 0)
         , _runProg
+        , _setEnv
+        , _cd
+        , _pipe
     ]
 
 
@@ -85,6 +93,25 @@ _runProg = f1 "_runProg" \case
         return $ StringV (toText out)
     x -> argTypeError "_runProg" "ProgramFragment" [x]
 
+_setEnv :: (Text, Value)
+_setEnv = f2 "_setEnv" $ curry \case
+    (StringV var, val) -> liftIO $ setEnv (toString var) (toString $ fromMaybe "" $ viaNonEmpty head $ valToArgs val) $> StringV var
+    (x,_) -> argTypeError "_setEnv" "String" [x]
+
+_cd :: (Text, Value)
+_cd = f1 "_cd" $ \case
+    StringV var -> liftIO $ setCurrentDirectory (toString var) >> (getCurrentDirectory >>= setEnv "PWD") $> StringV var
+    x -> argTypeError "_setEnv" "String or Path" [x]
+
+_pipe :: (Text, Value)
+_pipe = f2 "_pipe" $ curry \case
+    (Program p1, Program p2) -> return $ Program $ setProgramOutput p1 p2
+    (x, y) -> argTypeError "_pipe" "Program" [x, y]
+    where
+        setProgramOutput :: ProgramFragment -> ProgramFragment -> ProgramFragment
+        setProgramOutput p1@ProgramFragment{fragmentOutput} p2 = case fragmentOutput of
+            Nothing -> p1{fragmentOutput=Just p2}
+            Just p3 -> p1{fragmentOutput=Just (setProgramOutput p3 p2)}
 -- Helpers
 
 f1 :: Text -> (Value -> Repl Value) -> (Text, Value)
@@ -103,7 +130,7 @@ numF2 name f = (name,) $ NativeF 2 \case
     xs -> lift $ throwE $ ArgumentMisMatchError (name <> "<native>: expected exactly 2 numbers") xs
 
 stringF1 :: Text -> (Text -> Value) -> (Text, Value)
-stringF1 name f = (name,) $ NativeF 2 \case
+stringF1 name f = (name,) $ NativeF 1 \case
     [StringV x] -> return (f x)
     xs -> lift $ throwE $ ArgumentMisMatchError (name <> "<native>: expected exactly 1 string") xs
 

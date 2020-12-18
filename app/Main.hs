@@ -1,10 +1,12 @@
-{-#LANGUAGE BlockArguments, OverloadedStrings, LambdaCase, NoMonomorphismRestriction#-}
+{-#LANGUAGE BlockArguments, OverloadedStrings, LambdaCase#-}
 module Main where
 
 import Relude
 import Relude.Extra
 
 import System.Console.Haskeline
+import System.Directory
+import System.FilePath
 
 import Text.Parsec (ParseError)
 
@@ -14,22 +16,22 @@ import FShell.Runtime
 import FShell.NativeFs
 import Lib
 import Control.Error
+import Control.Exception (catch)
 
+import qualified Data.Text as T
 
 main :: IO ()
-main =  runPrompt initialShellState
+main = runPrompt initialShellState
     where
         runPrompt :: ShellState -> IO ()
-        runPrompt s = runStateT (runExceptT (runInputT defaultSettings (forever prompt))) s `catch` replExceptionHandler s >>= \case
-            (Left EOF, _) -> return ()
-            (Left (ParseError perr), st) ->  errLn ("Parse Error: " <> show perr) >> runPrompt st
-            (Left (VarNotFoundError v), st) -> errLn ("Variable not found: " <> v) >> runPrompt st
-            (Left (NotAFunctionError nf), st) -> errLn ("Tried to call a value that is not a function: " <> show nf) >> runPrompt st
-            (Left (TypeError v te), st) -> errLn ("Type Error: Expected type " <> te <> " but got: " <> show v) >> runPrompt st
-            (Left (ArgumentMisMatchError msg args), st) -> errLn ("Argument Mismatch: " <> msg <> " (Arguments: " <> show args <> ")") >> runPrompt st
-            (Left (LanguageError msg), st) -> errLn ("Language Error! Please report this: " <> msg) >> runPrompt st
-            (Left (IOError msg), st) -> errLn ("IO Error: " <> msg) >> runPrompt st
-            (Right _, st) -> void $ errLn $ "unexpexted end of shell loop\nlast shell state: \n" <> show st
+        runPrompt s = do 
+            home <- getHomeDirectory
+            let haskelineSettings = defaultSettings{historyFile = Just (home </> ".fshell" </> "history")}
+            
+            runStateT (runExceptT (runInputT haskelineSettings (forever prompt))) s `catch` replExceptionHandler s >>= \case
+                (Left EOF, _) -> return ()
+                (Left e, st) ->  errLn (showError e) >> runPrompt st
+                (Right _, st) -> void $ errLn $ "unexpexted end of shell loop\nlast shell state: \n" <> show st
         prompt :: Repl ()
         prompt = do
             inp <- fmap toText $ lift . (noteT' EOF) =<< getInputLine promptText
@@ -38,6 +40,18 @@ main =  runPrompt initialShellState
             return ()
         replExceptionHandler :: ShellState -> SomeException -> IO (Either ShellExit (), ShellState)
         replExceptionHandler s e = return (Left (IOError (show e)), s)
+
+showError :: ShellExit -> Text
+showError = \case
+    EOF -> "EOF"
+    (ParseError perr) -> "Parse Error: " <> show perr
+    (VarNotFoundError v) -> "Variable not found: " <> v
+    (NotAFunctionError nf) -> "Tried to call a value that is not a function: " <> show nf
+    (TypeError v te) -> "Type Error: Expected type " <> te <> " but got: " <> show v
+    (ArgumentMisMatchError msg args) -> "Argument Mismatch: " <> msg <> " (Arguments: " <> T.intercalate ", " (map show args) <> ")"
+    (IOError msg) -> "IO Error: " <> msg
+    (LanguageError msg) -> "Language Error! Please report this: " <> msg
+    (ImportError modname er) -> "Error importing module '" <> modname <> "': " <> showError er
 
 
 promptText :: String

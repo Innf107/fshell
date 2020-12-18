@@ -28,22 +28,22 @@ statements = whiteSpace *> ifParseMode ShellParse
             <* eof
 
 statement :: Parser Statement
-statement = import_ <|> def <|> Call <$> expr
+statement = import_ <|> def <|> Call <$> expr <?> "statement"
 
 import_ :: Parser Statement
-import_ = fmap Import $ reserved "import" *>
-    fmap (T.intercalate "/") (lexeme ((stringLiteral <|> identifier) `sepBy1` (char '/')))
+import_ = (fmap Import $ reserved "import" *>
+    fmap (T.intercalate "/") (lexeme ((stringLiteral <|> identifier) `sepBy1` (char '/')))) <?> "import declaration"
 
 def :: Parser Statement
-def = try (Def <$> (identifier <|> parens operator) <*> many identifier <* symbol "=") <*> expr
+def = try (Def <$> (identifier <|> parens operator) <*> many identifier <* symbol "=") <*> expr <?> "definition"
 
 expr :: Parser Expr
-expr = fmap mkOpCall $ (Expr <$> exprNoOp)
+expr = (fmap mkOpCall $ (Expr <$> exprNoOp)
         `chainl1`
-        (operator >>= \o -> getOpPriority o >>= \p -> return \x y -> Op o p x y)
+        (operator >>= \o -> getOpPriority o >>= \p -> return \x y -> Op o p x y)) <?> "expression"
         where
             mkOpCall :: OpCallTree -> Expr
-            mkOpCall = foldOpTree . repairOpTree
+            mkOpCall = foldOpTree . iterateWhileDiff repairOpTree
 
             foldOpTree :: OpCallTree -> Expr
             foldOpTree = \case
@@ -54,11 +54,11 @@ expr = fmap mkOpCall $ (Expr <$> exprNoOp)
             repairOpTree = \case
                 Expr e -> Expr e
                 Op o p (Expr le) r -> Op o p (Expr le) r
-                Op o p (Op lo lp ll lr) r
-                    | p > lp -> repairOpTree $ Op lo lp ll (Op o p lr r) -- rotation
-                    | otherwise -> Op o p (repairOpTree (Op lo lp ll lr)) r
+                Op o (p, rassoc) (Op lo (lp, lrassoc) ll lr) r
+                    | p > lp || p == lp && rassoc && lrassoc -> repairOpTree $ Op lo (lp, lrassoc) ll (Op o (p, rassoc) lr r) -- rotation
+                    | otherwise -> Op o (p, rassoc) (repairOpTree (Op lo (lp, lrassoc) ll lr)) r
 
-            getOpPriority :: Text -> Parser Int
+            getOpPriority :: Text -> Parser (Int, Bool)
             getOpPriority op = getState >>= \s ->
                 maybe
                     (fail ("Operator not found '" ++ toString op ++ "'\nMaybe you forgot to declare its precedence?"))
@@ -67,7 +67,7 @@ expr = fmap mkOpCall $ (Expr <$> exprNoOp)
 
 data OpCallTree
     = Expr Expr
-    | Op Text Int OpCallTree OpCallTree
+    | Op Text (Int, Bool) OpCallTree OpCallTree
     deriving (Show, Eq)
 
 
@@ -75,33 +75,36 @@ exprNoOp :: Parser Expr
 exprNoOp = (Var <$> identifier <|> nofcallexpr) >>= \initial -> foldl' FCall initial <$> (nofcallexpr `sepBy` spaces)
 
 nofcallexpr :: Parser Expr
-nofcallexpr = parens expr <|> stringlit <|> boollit <|> numlit <|> listlit <|> lambda <|> ifthenelse <|> flag {-<|> path-} <|> var
+nofcallexpr = parens expr <|> progSubst <|> stringlit <|> boollit <|> numlit <|> listlit <|> lambda <|> ifthenelse <|> flag {-<|> path-} <|> var
+
+progSubst :: Parser Expr
+progSubst = FCall (Var "_runProg") <$> braces expr
 
 stringlit :: Parser Expr
 stringlit = ifParseMode ShellParse
     (StringLit <$> (stringLiteral <|> identifier))
-    (StringLit <$> stringLiteral)
+    (StringLit <$> stringLiteral) <?> "string literal"
 
 boollit :: Parser Expr
-boollit = fmap BoolLit $ reserved "True" $> True <|> reserved "False" $> False
+boollit = (fmap BoolLit $ reserved "True" $> True <|> reserved "False" $> False) <?> "boolean literal"
 
 numlit :: Parser Expr
-numlit = naturalOrFloat <&> either (NumLit . fromInteger) NumLit
+numlit = naturalOrFloat <&> either (NumLit . fromInteger) NumLit <?> "number literal"
 
 listlit :: Parser Expr
-listlit = ListLit <$> brackets (commaSep expr)
+listlit = ListLit <$> brackets (commaSep expr) <?> "list literal"
 
 lambda :: Parser Expr
-lambda = symbol "\\" >> Lambda <$> identifier <* symbol "->" <*> expr
+lambda = symbol "\\" >> Lambda <$> identifier <* symbol "->" <*> expr <?> "lambda expression"
 
 ifthenelse :: Parser Expr
-ifthenelse = reserved "if" >> If <$> expr <* reserved "then" <*> expr <* reserved "else" <*> expr
+ifthenelse = reserved "if" >> If <$> expr <* reserved "then" <*> expr <* reserved "else" <*> expr <?> "if expression"
 
 var :: Parser Expr
-var = whenShell (symbol "$") >> Var <$> identifier
+var = whenShell (symbol "$") >> Var <$> identifier <?> "variable"
 
 pragma :: Parser (Maybe a)
-pragma = (symbol "%" *> choice [modePragma] <|> opPriorityPragma) $> Nothing
+pragma = (symbol "%" *> choice [modePragma] <|> opPriorityPragma) $> Nothing <?> "pragma"
     where
         modePragma :: Parser ()
         modePragma = do
@@ -110,10 +113,10 @@ pragma = (symbol "%" *> choice [modePragma] <|> opPriorityPragma) $> Nothing
                                     >>= \x -> modifyState (\s -> s{parseMode=x})
         opPriorityPragma :: Parser ()
         opPriorityPragma = do
-            reserved "infixl"
+            lr <- (reserved "infixl" $> False) <|> (reserved "infixr" $> True)
             priority <- fromInteger <$> natural
             op <- operator
-            modifyState (\s -> s{opPriorities = opPriorities s & insert op priority})
+            modifyState (\s -> s{opPriorities = opPriorities s & insert op (priority, lr)})
 
 
 flag :: Parser Expr

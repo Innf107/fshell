@@ -36,6 +36,7 @@ dependencies:
 - haskeline
 - errors
 - process
+- filepath
 
 
 library:

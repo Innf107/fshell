@@ -69,9 +69,11 @@ instance Eq Value where
 
 type ScopeFrame = HashMap Name Value
 
+type ModuleName = Name
+
 data Scope = Scope {
           _nativeScope::ScopeFrame
-        , _importedScope::[ScopeFrame]
+        , _importedScope::HashMap ModuleName ScopeFrame
         , _exportedScope::ScopeFrame
         , _functionScope::ScopeFrame
     }
@@ -81,7 +83,7 @@ data Scope = Scope {
 -- Lenses defined manually because template haskell would break mutual structural recursion
 nativeScope :: Lens' Scope ScopeFrame
 nativeScope = lens _nativeScope (\i x -> i{_nativeScope=x})
-importedScope :: Lens' Scope [ScopeFrame]
+importedScope :: Lens' Scope (HashMap ModuleName ScopeFrame)
 importedScope = lens _importedScope (\i x -> i{_importedScope=x})
 exportedScope :: Lens' Scope ScopeFrame
 exportedScope = lens _exportedScope (\i x -> i{_exportedScope=x})
@@ -99,18 +101,19 @@ data ParseMode = ShellParse
 data ShellState = ShellState {
         parseMode :: ParseMode
       , scope :: Scope
-      , opPriorities :: HashMap Name Int -- TODO: Does (probably?) not work for imports
+      --                                   rightassociative
+      , opPriorities :: HashMap Name (Int, Bool)
     } deriving (Show, Eq)
 
 data ShellExit = EOF
                | ParseError ParseError
                | VarNotFoundError Name
-               | OpNotFoundError Name
                | NotAFunctionError Value
                | ArgumentMisMatchError Text [Value]
                | LanguageError Text
                | TypeError Value Name
                | IOError Text
+               | ImportError ModuleName ShellExit
                deriving (Show, Eq)
 
 type Repl a = InputT (ExceptT ShellExit (StateT ShellState IO)) a

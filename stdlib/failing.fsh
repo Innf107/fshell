@@ -1,3 +1,4 @@
 import stdlib/base;
+import test;
 
-g x = _addNum x 1;
+x = a;

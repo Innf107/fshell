@@ -43,6 +43,7 @@ library
     , containers
     , directory
     , errors
+    , filepath
     , hashable
     , haskeline
     , lens
@@ -69,6 +70,7 @@ executable fshell
     , containers
     , directory
     , errors
+    , filepath
     , fshell
     , hashable
     , haskeline
@@ -97,6 +99,7 @@ test-suite fshell-test
     , containers
     , directory
     , errors
+    , filepath
     , fshell
     , hashable
     , haskeline

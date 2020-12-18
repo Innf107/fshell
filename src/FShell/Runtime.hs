@@ -6,15 +6,16 @@ import Relude
 import Relude.Extra hiding ((.~), (%~))
 
 import Control.Lens hiding (head1)
-import Control.Error (throwE)
 import Control.Monad
+import Control.Monad.Except
+
 
 import System.Console.Haskeline
 import System.Environment
 import System.Directory
 import System.Process
 import System.Exit
-import System.IO
+import System.IO hiding (print, putStr, putChar, putStrLn)
 
 import qualified Data.Text as T
 
@@ -44,7 +45,7 @@ eval = \case
     BoolLit b -> return $ BoolV b
     Var v -> do 
         s <- gets scope
-        mv :: Maybe Value <- return (asumMap (lookup v) ([_functionScope s, _exportedScope s] ++ _importedScope s ++ [_nativeScope s]))
+        mv :: Maybe Value <- return (asumMap (lookup v) ([_functionScope s, _exportedScope s] ++ elems (_importedScope s) ++ [_nativeScope s]))
             <<|>> liftIO (fmap (StringV . toText) <$> lookupEnv (toString v))
             <<|>> liftIO (fmap (\p -> Program $ ProgramFragment p [] Nothing) <$> findProgramInPath v)
         lift $ noteT' (VarNotFoundError v) mv
@@ -55,7 +56,7 @@ eval = \case
         case cond of
             (BoolV True) -> eval thEx
             (BoolV False) -> eval elEx
-            _ -> lift $ throwE (TypeError cond "Bool")
+            _ -> lift $ throwError (TypeError cond "Bool")
     FCall fex aex -> do
         f <- eval fex
         a <- eval aex
@@ -69,7 +70,7 @@ eval = \case
             Program pf -> return $ Program pf{fragmentArgs = fragmentArgs pf ++ valToArgs a}
             NativeF 1 nf -> nf [a]
             NativeF argCount nf -> return $ NativeF (argCount - 1) (\xs -> nf (a:xs))
-            _ -> lift $ throwE $ NotAFunctionError f
+            _ -> lift $ throwError $ NotAFunctionError f
 
 callProgram :: (MonadIO m) => Bool -> ProgramFragment -> m (ExitCode, String)
 callProgram = liftIO .- callProgramInner Nothing
@@ -79,16 +80,14 @@ callProgram = liftIO .- callProgramInner Nothing
         Nothing -> withCreateProcess (
             (proc fragmentPath (map toString fragmentArgs))
                 {std_in=maybe Inherit UseHandle inStream, std_out=if toStdout then Inherit else CreatePipe})
-            \sin sout serr processHandle ->
+            \_sin sout _serr processHandle ->
                 (,) <$> waitForProcess processHandle <*> (fromMaybe (return "NOSTDOUT") (hGetContentsStrict <$> sout))
         Just outProg -> do
-            (pipeWrite, pipeRead) <- createPipe
-            withCreateProcess ((proc fragmentPath (map toString fragmentArgs)){std_in=maybe Inherit UseHandle inStream, std_out=UseHandle pipeWrite})
-                        \sin sout serr processHandle -> do
-                            res <- callProgramInner (Just pipeRead) toStdout outProg
+            withCreateProcess ((proc fragmentPath (map toString fragmentArgs)){std_in=maybe Inherit UseHandle inStream, std_out=CreatePipe})
+                        \_sin sout _serr processHandle -> do
+                            res <- callProgramInner sout toStdout outProg
                             _ <- waitForProcess processHandle
                             return res
-                            --(,) <$> waitForProcess processHandle <*> (fromMaybe (return "NOSTDOUT") (hGetContents <$> sout))
 
 valToArgs :: Value -> [Text]
 valToArgs = \case
@@ -111,12 +110,21 @@ importModule modName = do
     let modPath = toString $ modName <> ".fsh"
     modFile <- readFileText modPath
     prevParseMode <- gets parseMode
+    
     modify (\s -> s{parseMode=ScriptParse})
-    modAst <- stateM $ \s -> first' ParseError $ parse s statements modPath modFile
+    
+    modAst <- stateM $ \s -> case parse s statements modPath modFile of
+        Left e -> modify (\s->s{parseMode=prevParseMode}) >> throwError (ImportError modName (ParseError e)) 
+        Right res -> return res
+        
     prevScope <- gets scope
-    mapM_ runStatement modAst
+
+    mapM_ runStatement modAst `catchError` \e -> do
+        modify \s -> s{parseMode=prevParseMode, scope=prevScope}
+        throwError (ImportError modName e)
+        
     exported <- gets $ _exportedScope . scope
-    modify \s -> s{parseMode=prevParseMode, scope = prevScope & importedScope %~ (++ [exported])}
+    modify \s -> s{parseMode=prevParseMode, scope = prevScope & importedScope %~ (insert modName exported)}
 
 
 findProgramInPath :: Name -> IO (Maybe FilePath)

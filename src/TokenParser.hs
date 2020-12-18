@@ -26,14 +26,14 @@ fshellDef = PT.LanguageDef {
         , PT.nestedComments = True
 
         , PT.caseSensitive = True
-        , PT.reservedNames = ["if", "then", "else", "True", "False", "import", "infixl"]
+        , PT.reservedNames = ["if", "then", "else", "True", "False", "import", "infixl", "infixr"]
         , PT.reservedOpNames = []
 
         , PT.identStart = letter <|> oneOf "_"
         , PT.identLetter = alphaNum <|> oneOf "_'?"
 
         , PT.opStart = PT.opLetter fshellDef
-        , PT.opLetter = oneOf ":!#$%&*+./<=>?@\\^|-~"
+        , PT.opLetter = oneOf ":!#%&*+./<=>@\\^|-~"
     }
 
 
