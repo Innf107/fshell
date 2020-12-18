@@ -11,35 +11,60 @@ import System.FilePath
 import Text.Parsec (ParseError)
 
 import FShell.Parser
-import Types
+import Types hiding (Parser)
 import FShell.Runtime
 import FShell.NativeFs
 import Lib
 import Control.Error
 import Control.Exception (catch)
 
+import Options.Applicative
+
 import qualified Data.Text as T
 
-main :: IO ()
-main = runPrompt initialShellState
+data RunArguments = RunArguments {
+        runType :: RunType
+    }
+
+data RunType = RunSimple | RunFile FilePath | RunExpr Text deriving (Show, Eq)
+
+parseArgs :: ParserInfo RunArguments
+parseArgs = info (argParser <**> helper)
+    (header "fshell - A functional shell")
     where
-        runPrompt :: ShellState -> IO ()
-        runPrompt s = do 
-            home <- getHomeDirectory
-            let haskelineSettings = defaultSettings{historyFile = Just (home </> ".fshell" </> "history")}
-            
-            runStateT (runExceptT (runInputT haskelineSettings (forever prompt))) s `catch` replExceptionHandler s >>= \case
-                (Left EOF, _) -> return ()
-                (Left e, st) ->  errLn (showError e) >> runPrompt st
-                (Right _, st) -> void $ errLn $ "unexpexted end of shell loop\nlast shell state: \n" <> show st
+        argParser :: Parser RunArguments
+        argParser = RunArguments <$>
+            (runExpr <|> runSimple <|> runFile)
+
+        runExpr = RunExpr <$> strOption (long "exec" <> short 'c' <> metavar "expression")
+
+        runSimple = pure RunSimple
+        runFile = RunFile <$> strArgument (metavar "file")
+
+main :: IO ()
+main = execParser parseArgs >>= \runArgs -> case runType runArgs of
+    RunSimple -> runPrompt initialShellState
+    RunFile fp -> putStrLn $ "Run file " <> fp
+    RunExpr exp -> putTextLn $ "Run expression: " <> exp
+
+runPrompt :: ShellState -> IO ()
+runPrompt s = do
+    home <- getHomeDirectory
+    let haskelineSettings = defaultSettings{historyFile = Just (home </> ".fshell" </> "history")}
+
+    runStateT (runExceptT (runInputT haskelineSettings (forever prompt))) s `catch` replExceptionHandler s >>= \case
+        (Left EOF, _) -> return ()
+        (Left e, st) ->  errLn (showError e) >> runPrompt st
+        (Right _, st) -> void $ errLn $ "unexpexted end of shell loop\nlast shell state: \n" <> show st
+    where
         prompt :: Repl ()
         prompt = do
             inp <- fmap toText $ lift . (noteT' EOF) =<< getInputLine promptText
-            ast <- stateM $ \s -> first' ParseError $ parse s statements "SHELL" inp
+            ast <- stateM $ \st -> first' ParseError $ parse st statements "SHELL" inp
             mapM_ runStatement ast
             return ()
         replExceptionHandler :: ShellState -> SomeException -> IO (Either ShellExit (), ShellState)
-        replExceptionHandler s e = return (Left (IOError (show e)), s)
+        replExceptionHandler st e = return (Left (IOError (show e)), st)
 
 showError :: ShellExit -> Text
 showError = \case
