@@ -54,10 +54,28 @@ infixl 4 ==
 (<=) x y = x < y || x == y;
 infixl 4 <=
 
+# Used for chaining side effects
+#
+# (>>) first evaluates the first, then the second argument
+# and returns the second one
+#
+# Example [from stdlib/shell]:
+# ```
+# success? prog = {prog} >> $status == 0
+# ```
+#
+(>>) x y = y;
+infixr 0 >>
 
+# Used for chaining side effects
+# (<<) first evaluates the first, then the second argument
+# and returns the first one
+#
+# Example:
+#
+# readAndRemove file = {cat file} << rm file;
+# <=>
+# readAndRemove file = let content = {cat file} in rm file >> content
+(<<) x y = x;
+infixr 0 <<
 
-# Shell
-(|) = _pipe;
-infixr 2 |
-
-cd = _cd;

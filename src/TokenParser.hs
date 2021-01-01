@@ -18,7 +18,7 @@ import Types
 
 import Types
 
-fshellDef :: GenLanguageDef Text ShellState Identity
+fshellDef :: GenLanguageDef Text ShellState (Reader ParseEnv)
 fshellDef = PT.LanguageDef {
           PT.commentLine = "#"
         , PT.commentStart = "{-"
@@ -26,7 +26,7 @@ fshellDef = PT.LanguageDef {
         , PT.nestedComments = True
 
         , PT.caseSensitive = True
-        , PT.reservedNames = ["if", "then", "else", "True", "False", "import", "infixl", "infixr"]
+        , PT.reservedNames = ["if", "then", "else", "True", "False", "import", "carry", "infixl", "infixr"]
         , PT.reservedOpNames = []
 
         , PT.identStart = letter <|> oneOf "_"
@@ -37,7 +37,7 @@ fshellDef = PT.LanguageDef {
     }
 
 
-tp :: PT.GenTokenParser Text ShellState Identity
+tp :: PT.GenTokenParser Text ShellState (Reader ParseEnv)
 tp = PT.makeTokenParser fshellDef
 
 identifier :: Parser Text

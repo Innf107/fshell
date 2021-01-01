@@ -5,7 +5,7 @@ module FShell.Runtime where
 import Relude
 import Relude.Extra hiding ((.~), (%~))
 
-import Control.Lens hiding (head1)
+import Control.Lens hiding (head1, (<.>))
 import Control.Monad
 import Control.Monad.Except
 
@@ -15,6 +15,7 @@ import System.Environment
 import System.Directory
 import System.Process
 import System.Exit
+import System.FilePath
 import System.IO hiding (print, putStr, putChar, putStrLn)
 
 import qualified Data.Text as T
@@ -31,18 +32,22 @@ runStatement = \case
         whenNotNull params \params1 ->
             modify (\s -> s{scope = let scope' = (scope s) & functionScope . at vname ?~ Function (head1 params1) (foldr Lambda ex (tail params1)) scope' in scope'})
         value <- eval $ fun
-        modify (\s -> s{scope = scope s & exportedScope . at vname ?~ value {-& functionScope .~ mempty-}})
-        --lift . print =<< get
+        modify (\s -> s{scope = scope s & exportedScope . at vname ?~ value & functionScope .~ mempty})
+
     Call e -> eval e >>= \case
         Program p -> setNativeVar "status" . NumV . convert . exitNum . fst =<< callProgram True p
-        v -> outputStrLn $ "Call " <> show v
-    Import modName -> importModule modName
+        UnitV -> pass
+        v -> outputStrLn $ show v
+    Import carry modName -> importModule carry modName
 
 eval :: Expr -> Repl Value
 eval = \case
+    Unit -> return UnitV
     NumLit n -> return $ NumV n
     StringLit s -> return $ StringV s
     BoolLit b -> return $ BoolV b
+    Path segs -> return $ PathV segs
+    Flag f -> return $ FlagV f
     Var v -> do 
         s <- gets scope
         mv :: Maybe Value <- return (asumMap (lookup v) ([_functionScope s, _exportedScope s] ++ elems (_importedScope s) ++ [_nativeScope s]))
@@ -98,26 +103,34 @@ valToArgs = \case
     Program fp -> ["PROGRAM(" <> toText (fragmentPath fp) <> ")"] --TODO
     StringV s -> [s]
     ListV vs -> concatMap valToArgs vs
+    UnitV -> ["()"]
+    PathV [""] -> ["/"]
+    PathV segs -> [T.intercalate "/" segs]
+    FlagV f -> [f]
 
 setNativeVar :: Name -> Value -> Repl ()
 setNativeVar vname val = modify (\s -> s{scope=scope s & nativeScope . at vname ?~ val})
 
 
-importModule :: Name -> Repl ()
-importModule modName = do
+importModule :: Bool -> Name -> Repl ()
+importModule carry modName = do
     -- TODO search in other paths ($FSHELLPATH ?)
     -- TODO: use paths relative to the current module (for nested imports)
+    fshellpath <- liftIO $ fromMaybe "~/.fshell" <$> lookupEnv "FSHELLPATH"
     let modPath = toString $ modName <> ".fsh"
-    modFile <- readFileText modPath
+    modFile <- liftIO $ readFileText modPath <|> readFileText (fshellpath </> modPath)
     prevParseMode <- gets parseMode
     
     modify (\s -> s{parseMode=ScriptParse})
-    
-    modAst <- stateM $ \s -> case parse s statements modPath modFile of
-        Left e -> modify (\s->s{parseMode=prevParseMode}) >> throwError (ImportError modName (ParseError e)) 
+
+    parseEnv <- getParseEnv
+    modAst <- stateM $ \s -> case parse s parseEnv statements modPath modFile of
+        Left e -> modify (\s'->s'{parseMode=prevParseMode}) >> throwError (ImportError modName (ParseError e))
         Right res -> return res
         
     prevScope <- gets scope
+
+    modify \s -> s{scope=scope s & exportedScope .~ mempty & importedScope .~ mempty}
 
     mapM_ runStatement modAst `catchError` \e -> do
         modify \s -> s{parseMode=prevParseMode, scope=prevScope}
@@ -125,6 +138,7 @@ importModule modName = do
         
     exported <- gets $ _exportedScope . scope
     modify \s -> s{parseMode=prevParseMode, scope = prevScope & importedScope %~ (insert modName exported)}
+    when (carry) $ modify \s -> s{scope = scope s & exportedScope %~ (<> exported)}
 
 
 findProgramInPath :: Name -> IO (Maybe FilePath)
@@ -133,4 +147,8 @@ findProgramInPath prog = do
     candidates <- filterM doesFileExist pathVars
     return $ viaNonEmpty head candidates
 
+
+getParseEnv :: (MonadIO m) => m ParseEnv
+getParseEnv = ParseEnv
+    <$> liftIO getHomeDirectory
 

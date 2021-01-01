@@ -2,6 +2,7 @@
 {-# LANGUAGE FlexibleInstances, MultiParamTypeClasses, UndecidableInstances #-}
 {-# LANGUAGE FunctionalDependencies #-}
 {-# LANGUAGE RankNTypes #-}
+{-# OPTIONS_GHC -Wno-orphans#-}
 module Lib where
 
 import Relude
@@ -12,11 +13,8 @@ import System.IO
 import System.Console.Haskeline
 import System.Exit
 
-import qualified Data.Map.Strict as M
-import qualified Data.HashMap.Strict as HM
 
-
-import Control.Monad.Error
+import Control.Monad.Except
 
 import Data.Maybe (fromJust)
 import Data.Text (Text, pack)
@@ -38,46 +36,17 @@ whenMaybeM mc ma = mc >>= \case
 showT :: (Show x) => x -> Text
 showT = pack . show
 
-lookupJ :: (Ord k) => k -> Map k v -> v
-lookupJ = (fromJust .) . M.lookup
-
 removeDir :: FilePath -> IO Bool
 removeDir fp = doesDirectoryExist fp >>= \case
     False -> return False
     True -> removeDirectoryRecursive fp >> return True
 
-{-
-instance (MonadFail m) => MonadFail (InputT m) where
-    fail = lift . fail
--}
-
 instance (MonadError e m) => MonadError e (InputT m) where
     throwError = lift . throwError
     catchError x f = withRunInBase (\unlift -> unlift x `catchError` (unlift . f))
 
---withRunInBase :: Monad m => ((forall a . InputT m a -> m a) -> m b) -> InputT m b
-
-{-
-instance (MonadException m) => MonadException (ExceptT e m) where
-    controlIO f = ExceptT $ controlIO $ \(RunIO run) -> let
-                    run' = RunIO (fmap ExceptT . run . runExceptT)
-                    in fmap runExceptT $ f run'
--}
-
 instance (MonadState s m) => MonadState s (InputT m) where
     state = lift . state
-{-
-class MonadIO m => MonadException m where
-    controlIO :: (RunIO m -> IO (m a)) -> m a
-newtype RunIO m = RunIO (forall b . m b -> IO (m b))
-
-controlIO :: (RunIO (IO a) -> IO (IO a)) -> IO a
-controlIO :: ((forall b. IO b -> IO (IO b)) -> IO (IO a)) -> IO a
-
-controlIO :: (RunIO (ExceptT e m b) -> IO (m a)) -> ExceptT e m a
-controlIO :: ((forall b. ExceptT e m b -> IO (ExceptT e m b)) -> IO (ExceptT e m a)) -> ExceptT e m a
-
--}
 
 putStdError :: String -> IO ()
 putStdError = hPutStrLn stderr
@@ -110,6 +79,11 @@ mapFirst _ [] = error "mapFst on empty list"
 (.-) = (.) . (.)
 infixr 9 .-
 
+(..-) :: (a -> b) -> (c -> d -> e -> a) -> c -> d -> e -> b
+(..-) = (.-) . (.)
+infixr 9 ..-
+
+
 exitNum :: ExitCode -> Int
 exitNum = \case
     ExitSuccess -> 0
@@ -136,3 +110,6 @@ iterateWhileDiff f x
     | f x == x = x
     | otherwise = iterateWhileDiff f (f x)
 
+
+outputLn :: (ToString s, MonadIO m) => s -> InputT m () 
+outputLn = outputStrLn . toString

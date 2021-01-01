@@ -14,12 +14,14 @@ import Text.Parsec.Language
 
 import qualified Data.Text as T
 
+import System.Directory
+
 import TokenParser
 import Types
 import Lib
 
-parse :: ShellState -> Parser a -> FilePath -> Text -> Either ParseError (a, ShellState)
-parse st p filename input = runParser ((,) <$> p <*> getState <* eof) st filename input
+parse :: ShellState -> ParseEnv -> Parser a -> FilePath -> Text -> Either ParseError (a, ShellState)
+parse st env p filename input = flip runReader env $ runParserT ((,) <$> p <*> getState <* eof) st filename input
 
 statements :: Parser [Statement]
 statements = whiteSpace *> ifParseMode ShellParse
@@ -31,7 +33,7 @@ statement :: Parser Statement
 statement = import_ <|> def <|> Call <$> expr <?> "statement"
 
 import_ :: Parser Statement
-import_ = (fmap Import $ reserved "import" *>
+import_ = (reserved "import" *> pure Import <*> (option False (reserved "carry" $> True)) <*>
     fmap (T.intercalate "/") (lexeme ((stringLiteral <|> identifier) `sepBy1` (char '/')))) <?> "import declaration"
 
 def :: Parser Statement
@@ -72,10 +74,13 @@ data OpCallTree
 
 
 exprNoOp :: Parser Expr
-exprNoOp = (Var <$> identifier <|> nofcallexpr) >>= \initial -> foldl' FCall initial <$> (nofcallexpr `sepBy` spaces)
+exprNoOp = (path <|> Var <$> identifier <|> nofcallexpr) >>= \initial -> foldl' FCall initial <$> (nofcallexpr `sepBy` spaces)
 
 nofcallexpr :: Parser Expr
-nofcallexpr = parens expr <|> progSubst <|> stringlit <|> boollit <|> numlit <|> listlit <|> lambda <|> ifthenelse <|> flag {-<|> path-} <|> var
+nofcallexpr = choice [
+          parens expr, progSubst, boollit, numlit, listlit
+        , lambda, ifthenelse, flag, try var, try pathNoRoot, stringlit
+    ]
 
 progSubst :: Parser Expr
 progSubst = FCall (Var "_runProg") <$> braces expr
@@ -125,9 +130,31 @@ flag = fail "Flag NYI" {-Flag . toText <$> lexeme do
     mm <- toText <$> option "" (string "-")
     (("-" <> mm) <>) <$> identifier
 -}
---TODO
+
+--TODO: ~
 path :: Parser Expr
-path = fail "Path NYI" --Path . map toText <$> lexeme do many1 (noneOf (" \t\n"::String)) `sepBy1` (string "/")
+path = (try pathNoRoot <|> string "/" $> Path [""]) <?> "path"
+
+pathNoRoot :: Parser Expr
+pathNoRoot = whiteSpace >> (Path . map toText <$> lexeme (homePath <|> pathLeadingSlash <|> try regularPath <|> singleSegWithDot))
+    where
+        homePath :: Parser [String]
+        homePath = do
+            _ <- char '~'
+            slash
+            rest <- pathSeg `sepEndBy1` slash
+            home <- asks homeDirectory
+            return (map toString (T.split (=='/') (toText home)) ++ rest)
+        pathLeadingSlash = do
+            slash
+            ([""] <>) <$> (pathSeg `sepEndBy1` slash)
+        regularPath = do
+            seg1 <- pathSeg
+            slash
+            (seg1:) <$> pathSeg `sepEndBy` slash
+        singleSegWithDot = pathSeg >>= \x -> guard ('.' `elem` x) $> [x]
+        pathSeg = many1 $ alphaNum <|> oneOf "_-#."
+        slash = void (many1 $ string "/")
 
 
 ifParseMode :: ParseMode -> Parser a -> Parser a -> Parser a

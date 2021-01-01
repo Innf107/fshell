@@ -43,6 +43,8 @@ nativeFs = fromList [
         -- Strings
         , stringF2 "_stringappend" (StringV .- (<>))
         , stringF1 "_stringchars" (ListV . map (StringV . T.singleton) . toString)
+        , stringF3 "_stringreplace" (StringV ..- T.replace)
+        , _mkString
 
         -- Shell
         , ("status", NumV 0)
@@ -62,6 +64,9 @@ _typeof = f1 "_typeof" $ return . StringV . \case
     NativeF _ _ -> "NativeF"
     Function _ _ _ -> "Function"
     Program _ -> "Program"
+    PathV _ -> "Path"
+    FlagV _ -> "Flag"
+    UnitV -> "()"
 
 _isnillist :: (Text, Value)
 _isnillist = f1 "_isnillist" \case
@@ -85,6 +90,16 @@ _taillist = f1 "_taillist" \case
     ListV [] -> lift $ throwE $ ArgumentMisMatchError "_taillist<native>: Empty list" []
     x -> argTypeError "_taillist" "List" [x]
 
+
+_mkString :: (Text, Value)
+_mkString = f1 "_mkString" \case
+    ListV cs -> StringV . T.concat <$> (mapM asString cs)
+    x -> argTypeError "_mkString" "List" [x] 
+    where
+        asString :: Value -> Repl Text
+        asString (StringV x) = return x
+        asString x = argTypeError "_mkString" "String" [x]
+
 _runProg :: (Text, Value)
 _runProg = f1 "_runProg" \case
     Program pf -> do 
@@ -100,8 +115,9 @@ _setEnv = f2 "_setEnv" $ curry \case
 
 _cd :: (Text, Value)
 _cd = f1 "_cd" $ \case
-    StringV var -> liftIO $ setCurrentDirectory (toString var) >> (getCurrentDirectory >>= setEnv "PWD") $> StringV var
-    x -> argTypeError "_setEnv" "String or Path" [x]
+    StringV var -> liftIO $ setCurrentDirectory (toString var) >> (getCurrentDirectory >>= setEnv "PWD") $> UnitV
+    PathV var -> liftIO $ setCurrentDirectory (toString $ T.intercalate "/" var) >> (getCurrentDirectory >>= setEnv "PWD") $> UnitV
+    x -> argTypeError "_cd" "String or Path" [x]
 
 _pipe :: (Text, Value)
 _pipe = f2 "_pipe" $ curry \case
@@ -137,6 +153,11 @@ stringF1 name f = (name,) $ NativeF 1 \case
 stringF2 :: Text -> (Text -> Text -> Value) -> (Text, Value)
 stringF2 name f = (name,) $ NativeF 2 \case
     [StringV x, StringV y] -> return (f x y)
+    xs -> lift $ throwE $ ArgumentMisMatchError (name <> "<native>: expected exactly 2 strings") xs
+
+stringF3 :: Text -> (Text -> Text -> Text -> Value) -> (Text, Value)
+stringF3 name f = (name,) $ NativeF 3 \case
+    [StringV x, StringV y, StringV z] -> return (f x y z)
     xs -> lift $ throwE $ ArgumentMisMatchError (name <> "<native>: expected exactly 2 strings") xs
 
 argTypeError :: Name -> Text -> [Value] -> Repl a

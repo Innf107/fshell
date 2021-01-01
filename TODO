@@ -1,19 +1,25 @@
+Parser:
+    Flags
+    null? (void?)
+    VarOrEmptyString(null?) expression (?Varname)
+    REPL ParseMode
+    wildcards (custom?)
+
+Runtime:
+    VarOrEmptyString(null?) expression (?Varname)
+    Function overloads
+    when executing scripts, cwd should be the directory of the script (also for imports)
+    private definitions | explicit exports
+    wildcards (custom?)
+    events?
+
+REPL:
+    autocompletions
+    correctly handle ctrl + c
+    better error handling
+    ignore empty inputs (instead of throwing a parse error)
+
 NativeFs:
 
-Paths
-Flags
-null? (void?)
-VarOrEmptyString(null?) expression (?Varname)
-REPL ParseMode
-Function overloads
-prompt
-autocompletions
-default imports
-module exports
-private definitions | explicit exports
-correctly handle ctrl + c
-better error handling
-ignore empty inputs (instead of throwing a parse error)
-wildcards (custom?)
-events?
+
 

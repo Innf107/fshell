@@ -1,21 +1,21 @@
-{-# LANGUAGE LambdaCase #-}
-{-# LANGUAGE BlockArguments #-}
+{-# LANGUAGE LambdaCase, BlockArguments, OverloadedStrings #-}
 module Types where
 
 import Relude
 import Relude.Extra
+import qualified Data.Text as T
 
 import System.Console.Haskeline (InputT)
 
 import qualified GHC.Show as Show (Show(..))
 
-import Text.Parsec (Parsec, ParseError)
+import Text.Parsec (ParsecT, ParseError)
 
 type Name = Text
 
 data Statement = Def Name [Name] Expr
                | Call Expr
-               | Import Name
+               | Import Bool Name
                deriving (Show, Eq)
 
 data Expr = Var Name
@@ -28,6 +28,7 @@ data Expr = Var Name
           | Path [Text]
           | Flag Text
           | ListLit [Expr]
+          | Unit
           deriving (Show, Eq)
 
 
@@ -35,9 +36,12 @@ data Value = BoolV Bool
            | StringV Text
            | ListV [Value]
            | NumV Double
+           | PathV [Text]
+           | FlagV Text
            | NativeF Int ([Value] -> Repl Value)
            | Function Name Expr Scope
            | Program ProgramFragment
+           | UnitV
 
 data ProgramFragment = ProgramFragment {
           fragmentPath :: FilePath
@@ -52,9 +56,13 @@ instance Show Value where
         StringV x -> show x
         ListV vs -> show vs
         NumV x -> show x
+        PathV [""] -> "/"
+        PathV ps -> toString $ T.intercalate "/" ps
+        FlagV f -> toString f
         NativeF i _ -> "<NATIVE FUNCTION(" ++ show i ++ ")>"
         Function _ _ _ -> "<FUNCTION>"
         Program fp -> show fp
+        UnitV -> "()"
 
 instance Eq Value where
     (==) = curry \case
@@ -91,8 +99,11 @@ functionScope :: Lens' Scope ScopeFrame
 functionScope = lens _functionScope (\i x -> i{_functionScope=x})
 
 
+data ParseEnv = ParseEnv {
+        homeDirectory :: FilePath
+    } deriving (Show, Eq)
 
-type Parser = Parsec Text ShellState
+type Parser = ParsecT Text ShellState (Reader ParseEnv)
 
 data ParseMode = ShellParse
                | ScriptParse

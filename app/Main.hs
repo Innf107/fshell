@@ -16,7 +16,8 @@ import FShell.Runtime
 import FShell.NativeFs
 import Lib
 import Control.Error
-import Control.Exception (catch)
+import Control.Monad.Catch
+import Control.Monad.Except
 
 import Options.Applicative
 
@@ -45,26 +46,37 @@ main :: IO ()
 main = execParser parseArgs >>= \runArgs -> case runType runArgs of
     RunSimple -> runPrompt initialShellState
     RunFile fp -> putStrLn $ "Run file " <> fp
-    RunExpr exp -> putTextLn $ "Run expression: " <> exp
+    RunExpr ex -> putTextLn $ "Run expression: " <> ex
 
 runPrompt :: ShellState -> IO ()
 runPrompt s = do
     home <- getHomeDirectory
     let haskelineSettings = defaultSettings{historyFile = Just (home </> ".fshell" </> "history")}
 
-    runStateT (runExceptT (runInputT haskelineSettings (forever prompt))) s `catch` replExceptionHandler s >>= \case
+    runStateT (runExceptT (runInputT haskelineSettings
+        (importStdlib >> forever ((prompt `catch` replExceptionHandler) `catchError` errorHandler)))) s >>= \case
         (Left EOF, _) -> return ()
-        (Left e, st) ->  errLn (showError e) >> runPrompt st
         (Right _, st) -> void $ errLn $ "unexpexted end of shell loop\nlast shell state: \n" <> show st
+        (Left e, st) -> void $ errLn $ "Unexpected end of shell. This is either a bug or an issue with your stdlib file. \n(" 
+            <> showError e <> ")\n\nlast shell state: " <> show st
     where
+        importStdlib :: Repl ()
+        -- TODO: Use FSHELLDIR EnvVar in the path, reexport other modules
+        importStdlib = runStatement (Import False "stdlib/stdlib")
         prompt :: Repl ()
         prompt = do
+            promptText <- getPromptText
             inp <- fmap toText $ lift . (noteT' EOF) =<< getInputLine promptText
-            ast <- stateM $ \st -> first' ParseError $ parse st statements "SHELL" inp
+            parseEnv <- getParseEnv
+            ast <- stateM $ \st -> first' ParseError $ parse st parseEnv statements "SHELL" inp
             mapM_ runStatement ast
             return ()
-        replExceptionHandler :: ShellState -> SomeException -> IO (Either ShellExit (), ShellState)
-        replExceptionHandler st e = return (Left (IOError (show e)), st)
+        replExceptionHandler :: SomeException -> Repl ()
+        replExceptionHandler e = throwError (IOError (show e))
+        errorHandler :: ShellExit -> Repl ()
+        errorHandler = \case
+            EOF -> throwError EOF
+            e -> outputLn (showError e)
 
 showError :: ShellExit -> Text
 showError = \case
@@ -77,10 +89,11 @@ showError = \case
     (IOError msg) -> "IO Error: " <> msg
     (LanguageError msg) -> "Language Error! Please report this: " <> msg
     (ImportError modname er) -> "Error importing module '" <> modname <> "': " <> showError er
-
-
-promptText :: String
-promptText = "\1\ESC[34m\2Test\1\ESC[0m\2:\1\ESC[38;2;0;255;255m\2$\1\ESC[0m\2 "
+    
+getPromptText :: Repl String
+getPromptText = eval (FCall (Var "prompt") Unit) `catchError` (const (pure UnitV)) <&> \case
+    StringV t -> toString t
+    _ -> "PROMPTERROR$ "
 
 
 initialShellState :: ShellState

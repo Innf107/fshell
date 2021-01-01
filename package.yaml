@@ -38,6 +38,7 @@ dependencies:
 - process
 - filepath
 - optparse-applicative
+- exceptions
 
 
 library:
