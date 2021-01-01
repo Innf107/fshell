@@ -116,14 +116,14 @@ importModule :: Bool -> Name -> Repl ()
 importModule carry modName = do
     -- TODO search in other paths ($FSHELLPATH ?)
     -- TODO: use paths relative to the current module (for nested imports)
-    fshellpath <- liftIO $ fromMaybe "~/.fshell" <$> lookupEnv "FSHELLPATH"
+    parseEnv <- getParseEnv
+    
     let modPath = toString $ modName <> ".fsh"
-    modFile <- liftIO $ readFileText modPath <|> readFileText (fshellpath </> modPath)
+    modFile <- liftIO $ readFileText modPath <|> readFileText (fshellpath parseEnv </> modPath)
     prevParseMode <- gets parseMode
     
     modify (\s -> s{parseMode=ScriptParse})
 
-    parseEnv <- getParseEnv
     modAst <- stateM $ \s -> case parse s parseEnv statements modPath modFile of
         Left e -> modify (\s'->s'{parseMode=prevParseMode}) >> throwError (ImportError modName (ParseError e))
         Right res -> return res
@@ -149,6 +149,11 @@ findProgramInPath prog = do
 
 
 getParseEnv :: (MonadIO m) => m ParseEnv
-getParseEnv = ParseEnv
-    <$> liftIO getHomeDirectory
+getParseEnv = do
+    homeDirectory <- liftIO getHomeDirectory
+    fshellpath <- liftIO $ fromMaybe (homeDirectory </> ".fshell") <$> lookupEnv "FSHELLPATH"
+    return $ ParseEnv {
+              homeDirectory
+            , fshellpath
+        }
 

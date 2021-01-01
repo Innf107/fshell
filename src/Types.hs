@@ -100,7 +100,8 @@ functionScope = lens _functionScope (\i x -> i{_functionScope=x})
 
 
 data ParseEnv = ParseEnv {
-        homeDirectory :: FilePath
+          homeDirectory :: FilePath
+        , fshellpath :: FilePath
     } deriving (Show, Eq)
 
 type Parser = ParsecT Text ShellState (Reader ParseEnv)
