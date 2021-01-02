@@ -30,7 +30,7 @@ fshellDef = PT.LanguageDef {
         , PT.reservedOpNames = []
 
         , PT.identStart = letter <|> oneOf "_"
-        , PT.identLetter = alphaNum <|> oneOf "_'?"
+        , PT.identLetter = alphaNum <|> oneOf "_'?-"
 
         , PT.opStart = PT.opLetter fshellDef
         , PT.opLetter = oneOf ":!#%&*+./<=>@\\^|-~"

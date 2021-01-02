@@ -74,12 +74,12 @@ data OpCallTree
 
 
 exprNoOp :: Parser Expr
-exprNoOp = (path <|> Var <$> identifier <|> nofcallexpr) >>= \initial -> foldl' FCall initial <$> (nofcallexpr `sepBy` spaces)
+exprNoOp = (path <|> flag <|> Var <$> identifier <|> nofcallexpr) >>= \initial -> foldl' FCall initial <$> (nofcallexpr `sepBy` spaces)
 
 nofcallexpr :: Parser Expr
 nofcallexpr = choice [
           parens expr, progSubst, boollit, numlit, listlit
-        , lambda, ifthenelse, flag, try var, try pathNoRoot, stringlit
+        , lambda, ifthenelse, try var, try pathNoRoot, try flag, stringlit
     ]
 
 progSubst :: Parser Expr
@@ -125,11 +125,12 @@ pragma = (symbol "%" *> choice [modePragma] <|> opPriorityPragma) $> Nothing <?>
 
 
 flag :: Parser Expr
-flag = fail "Flag NYI" {-Flag . toText <$> lexeme do
+flag = Flag . toText <$> lexeme do
     _ <- char '-'
-    mm <- toText <$> option "" (string "-")
-    (("-" <> mm) <>) <$> identifier
--}
+    mm <- option "" (string "-")
+    (("-" <> mm) <>) <$> flagChars
+    where
+        flagChars = many1 (alphaNum <|> oneOf "_-+=@")
 
 --TODO: ~
 path :: Parser Expr
