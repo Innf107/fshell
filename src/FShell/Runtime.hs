@@ -36,6 +36,7 @@ runStatement = \case
 
     Call e -> eval e >>= \case
         Program p -> setNativeVar "status" . NumV . convert . exitNum . fst =<< callProgram True p
+        PathV psegs -> let p = programFromPath psegs in setNativeVar "status" . NumV . convert . exitNum . fst =<< callProgram True p
         UnitV -> pass
         v -> outputStrLn $ show v
     Import carry modName -> importModule carry modName
@@ -73,9 +74,17 @@ eval = \case
                 modify (\s -> s{scope=prevScopes})
                 return x
             Program pf -> return $ Program pf{fragmentArgs = fragmentArgs pf ++ valToArgs a}
+            PathV p -> return $ let pf = programFromPath p in Program pf{fragmentArgs = fragmentArgs pf ++ valToArgs a}
             NativeF 1 nf -> nf [a]
             NativeF argCount nf -> return $ NativeF (argCount - 1) (\xs -> nf (a:xs))
             _ -> lift $ throwError $ NotAFunctionError f
+
+programFromPath :: [Text] -> ProgramFragment
+programFromPath p = ProgramFragment{
+      fragmentPath=toString $ renderPath p
+    , fragmentArgs=[]
+    , fragmentOutput=Nothing
+    }
 
 callProgram :: (MonadIO m) => Bool -> ProgramFragment -> m (ExitCode, String)
 callProgram = liftIO .- callProgramInner Nothing
@@ -105,8 +114,11 @@ valToArgs = \case
     ListV vs -> concatMap valToArgs vs
     UnitV -> ["()"]
     PathV [""] -> ["/"]
-    PathV segs -> [T.intercalate "/" segs]
+    PathV segs -> [renderPath segs]
     FlagV f -> [f]
+
+renderPath :: [Text] -> Text
+renderPath = T.intercalate "/"
 
 setNativeVar :: Name -> Value -> Repl ()
 setNativeVar vname val = modify (\s -> s{scope=scope s & nativeScope . at vname ?~ val})
