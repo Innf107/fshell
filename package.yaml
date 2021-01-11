@@ -39,6 +39,7 @@ dependencies:
 - filepath
 - optparse-applicative
 - exceptions
+- quickspec
 
 
 library:

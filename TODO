@@ -23,4 +23,11 @@ NativeFs:
     prog: calls a program instead of a function (eg. `prog ls` to call `ls` without colors)
     fun: calls a function instead of a program
 
+ToFix:
+    implicit stdlib imports for scripts
+    import errors should show the module that the function was imported from
+        (Also: stacktrace? (at least 'module trace'))
+
+???:
+    `someProgram a >> x` does not execute `someProgram`. You have to do `{someProgram a} >> x`
 

@@ -30,7 +30,7 @@ nativeFs = fromList [
         , numF2 "_subNum" (NumV .- (-))
         , numF2 "_mulNum" (NumV .- (*))
         , numF2 "_divNum" (NumV .- (/))
-        , numF2 "_divIntNum" (NumV .- fromIntegral @ Integer .- round .- (/))
+        , numF2 "_divIntNum" (NumV .- fromIntegral @ Integer .- floor .- (/))
         , numF2 "_modNum" (\x y -> NumV $ convert $ (floor x :: Int) `mod` (floor y :: Int))
         , numF2 "_ltNum" (BoolV .- (<))
 
@@ -49,9 +49,12 @@ nativeFs = fromList [
         -- Shell
         , ("status", NumV 0)
         , _runProg
+        , _performProg
         , _setEnv
         , _cd
         , _pipe
+
+        , _fail
     ]
 
 
@@ -108,6 +111,15 @@ _runProg = f1 "_runProg" \case
         return $ StringV (toText out)
     x -> argTypeError "_runProg" "ProgramFragment" [x]
 
+_performProg :: (Text, Value)
+_performProg = f1 "_performProg" \case
+    Program pf -> do
+        (status, out) <- callProgram False pf
+        setNativeVar "status" (NumV $ convert $ exitNum status)
+        outputLn out
+        return UnitV
+    x -> argTypeError "_performProg" "ProgramFragment" [x]
+
 _setEnv :: (Text, Value)
 _setEnv = f2 "_setEnv" $ curry \case
     (StringV var, val) -> liftIO $ setEnv (toString var) (toString $ fromMaybe "" $ viaNonEmpty head $ valToArgs val) $> StringV var
@@ -128,6 +140,13 @@ _pipe = f2 "_pipe" $ curry \case
         setProgramOutput p1@ProgramFragment{fragmentOutput} p2 = case fragmentOutput of
             Nothing -> p1{fragmentOutput=Just p2}
             Just p3 -> p1{fragmentOutput=Just (setProgramOutput p3 p2)}
+
+_fail :: (Text, Value)
+_fail = f1 "_fail" $ \case
+    (StringV x) -> lift $ throwE (ScriptError x)
+    x -> argTypeError "_fail" "String" [x]
+
+
 -- Helpers
 
 f1 :: Text -> (Value -> Repl Value) -> (Text, Value)
@@ -163,4 +182,6 @@ stringF3 name f = (name,) $ NativeF 3 \case
 argTypeError :: Name -> Text -> [Value] -> Repl a
 argTypeError funname expectedType xs = lift $ throwE $ ArgumentMisMatchError
     (funname <> "<native>: expected type " <> expectedType) xs
+
+
 

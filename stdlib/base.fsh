@@ -17,6 +17,8 @@ fix f = (\x -> f (\v -> x x v)) (\x -> f (\v -> x x v));
 # flip :: (a -> b -> c) -> b -> a -> c
 flip f x y = f y x;
 
+not x = if x then False else True;
+
 # (||) :: Bool -> Bool -> Bool
 (||) x y = if x then x else y;
 infixr 2 ||

@@ -55,7 +55,12 @@ instance Show Value where
         BoolV x -> show x
         StringV x -> show x
         ListV vs -> show vs
-        NumV x -> show x
+        NumV x
+            | abs (x - fromInteger (floor x :: Integer)) < margin -> show (round x :: Integer)
+            | otherwise -> show x
+            where
+                margin = 0.0000000001 
+
         PathV [""] -> "/"
         PathV ps -> toString $ T.intercalate "/" ps
         FlagV f -> toString f
@@ -126,6 +131,7 @@ data ShellExit = EOF
                | TypeError Value Name
                | IOError Text
                | ImportError ModuleName ShellExit
+               | ScriptError Text
                deriving (Show, Eq)
 
 type Repl a = InputT (ExceptT ShellExit (StateT ShellState IO)) a

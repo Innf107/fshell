@@ -79,7 +79,7 @@ exprNoOp = (path <|> flag <|> Var <$> identifier <|> nofcallexpr) >>= \initial -
 nofcallexpr :: Parser Expr
 nofcallexpr = choice [
           parens expr, progSubst, boollit, numlit, listlit
-        , lambda, ifthenelse, try var, try pathNoRoot, try flag, stringlit
+        , lambda, ifthenelse, try var, try path, try flag, stringlit
     ]
 
 progSubst :: Parser Expr
@@ -132,7 +132,6 @@ flag = Flag . toText <$> lexeme do
     where
         flagChars = many1 (alphaNum <|> oneOf "_-+=@")
 
---TODO: ~
 path :: Parser Expr
 path = (try pathNoRoot <|> string "/" $> Path [""]) <?> "path"
 
@@ -142,8 +141,7 @@ pathNoRoot = whiteSpace >> (Path . map toText <$> lexeme (homePath <|> pathLeadi
         homePath :: Parser [String]
         homePath = do
             _ <- char '~'
-            slash
-            rest <- pathSeg `sepEndBy1` slash
+            rest <- option [] $ slash >> (pathSeg `sepEndBy` slash)
             home <- asks homeDirectory
             return (map toString (T.split (=='/') (toText home)) ++ rest)
         pathLeadingSlash = do

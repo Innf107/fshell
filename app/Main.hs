@@ -38,7 +38,6 @@ parseArgs = info (argParser <**> helper)
             (runExpr <|> runSimple <|> runFile)
 
         runExpr = RunExpr <$> strOption (long "exec" <> short 'c' <> metavar "expression")
-
         runSimple = pure RunSimple
         runFile = RunFile <$> strArgument (metavar "file")
 
@@ -61,7 +60,6 @@ runPrompt s = do
             <> showError e <> ")\n\nlast shell state: " <> show st
     where
         importStdlib :: Repl ()
-        -- TODO: Use FSHELLDIR EnvVar in the path, reexport other modules
         importStdlib = runStatement (Import False "stdlib/stdlib")
         prompt :: Repl ()
         prompt = do
@@ -89,6 +87,7 @@ showError = \case
     (IOError msg) -> "IO Error: " <> msg
     (LanguageError msg) -> "Language Error! Please report this: " <> msg
     (ImportError modname er) -> "Error importing module '" <> modname <> "': " <> showError er
+    (ScriptError msg) -> "A Script had an error: " <> msg
     
 getPromptText :: Repl String
 getPromptText = eval (FCall (Var "prompt") Unit) `catchError` (const (pure UnitV)) <&> \case

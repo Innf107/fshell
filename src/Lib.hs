@@ -19,6 +19,8 @@ import Control.Monad.Except
 import Data.Maybe (fromJust)
 import Data.Text (Text, pack)
 
+import Types
+
 whenMonoidM :: (Monad m, Monoid (m a)) => m Bool -> m a -> m a
 whenMonoidM mc ma = mc >>= \case
     True -> ma
@@ -36,8 +38,8 @@ whenMaybeM mc ma = mc >>= \case
 showT :: (Show x) => x -> Text
 showT = pack . show
 
-removeDir :: FilePath -> IO Bool
-removeDir fp = doesDirectoryExist fp >>= \case
+removeDir :: (MonadIO m) => FilePath -> m Bool
+removeDir fp = liftIO $ doesDirectoryExist fp >>= \case
     False -> return False
     True -> removeDirectoryRecursive fp >> return True
 
@@ -75,10 +77,14 @@ mapFirst f (x:xs) = f x : xs
 mapFirst _ [] = error "mapFst on empty list"
     
 
+-- | Function composition with 2 arguments
+-- | `f .- g == \x y -> f (g x y)`
 (.-) :: (c -> d) -> (a -> b -> c) -> a -> b -> d
 (.-) = (.) . (.)
 infixr 9 .-
 
+-- | Function composition with 3 arguments
+-- | `f .- g == \x y z -> f (g x y z)`
 (..-) :: (a -> b) -> (c -> d -> e -> a) -> c -> d -> e -> b
 (..-) = (.-) . (.)
 infixr 9 ..-
@@ -89,8 +95,8 @@ exitNum = \case
     ExitSuccess -> 0
     ExitFailure x -> x
 
-hGetContentsStrict :: Handle -> IO String
-hGetContentsStrict h = hGetContents h >>= \s -> length s `seq` return s
+hGetContentsStrict :: (MonadIO m) => Handle -> m String
+hGetContentsStrict h = liftIO $ hGetContents h >>= \s -> length s `seq` return s
 
 class (Num a, Num b) => NumConv a b where
     convert :: a -> b
@@ -104,6 +110,7 @@ instance (Num a) => NumConv Integer a where
 instance (Integral a, Num b) => NumConv a b where
     convert = fromInteger . toInteger
 
+-- round :: Double -> Integer
 
 iterateWhileDiff :: Eq a => (a -> a) -> a -> a
 iterateWhileDiff f x
@@ -113,3 +120,5 @@ iterateWhileDiff f x
 
 outputLn :: (ToString s, MonadIO m) => s -> InputT m () 
 outputLn = outputStrLn . toString
+
+
